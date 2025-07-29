@@ -1,0 +1,9 @@
+annotated-types==0.7.0
+psycopg2-binary==2.9.10
+pydantic==2.11.7
+pydantic_core==2.33.2
+python-dotenv==1.1.1
+typing-inspection==0.4.1
+typing_extensions==4.14.1
+uuid7==0.1.0
+watchdog==6.0.0
