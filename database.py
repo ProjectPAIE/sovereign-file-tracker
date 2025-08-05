@@ -110,6 +110,65 @@ def create_file_lineage_table(connection = None):
             connection.close()
 
 
+def create_links_table(connection = None):
+    """
+    Create the sft_links table if it doesn't already exist.
+    This table supports relational linking between files.
+    
+    Args:
+        connection: Optional database connection. If not provided, a new one will be created.
+    
+    Returns:
+        bool: True if table was created successfully, False if it already exists
+    """
+    # SQL to create the sft_links table
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS sft_links (
+        source_uuid UUID NOT NULL,
+        target_uuid UUID NOT NULL,
+        notes TEXT,
+        
+        -- Composite primary key on source_uuid and target_uuid
+        PRIMARY KEY(source_uuid, target_uuid)
+    );
+    
+    -- Create indexes for better query performance
+    CREATE INDEX IF NOT EXISTS idx_sft_links_source_uuid ON sft_links(source_uuid);
+    CREATE INDEX IF NOT EXISTS idx_sft_links_target_uuid ON sft_links(target_uuid);
+    """
+    
+    should_close_connection = False
+    
+    try:
+        # Use provided connection or create a new one
+        if connection is None:
+            connection = get_database_connection()
+            should_close_connection = True
+        
+        cursor = connection.cursor()
+        
+        # Execute the table creation SQL
+        cursor.execute(create_table_sql)
+        connection.commit()
+        
+        logger.info("sft_links table created successfully (or already existed)")
+        return True
+        
+    except psycopg2.Error as e:
+        logger.error(f"Error creating sft_links table: {e}")
+        if connection:
+            connection.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error creating sft_links table: {e}")
+        if connection:
+            connection.rollback()
+        raise
+    finally:
+        if should_close_connection and connection:
+            connection.close()
+
+
 def test_database_connection():
     """
     Test function to verify database connection and table creation.
@@ -119,9 +178,13 @@ def test_database_connection():
         connection = get_database_connection()
         logger.info("Database connection test successful")
         
-        # Test table creation
+        # Test file_lineage table creation
         create_file_lineage_table(connection)
-        logger.info("Table creation test successful")
+        logger.info("file_lineage table creation test successful")
+        
+        # Test sft_links table creation
+        create_links_table(connection)
+        logger.info("sft_links table creation test successful")
         
         # Close connection
         connection.close()

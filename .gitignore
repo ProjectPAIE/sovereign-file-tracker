@@ -2,3 +2,11 @@
 .env
 .DS_Store
 .DS_Store
+
+# User Data & System Files
+SovereignArchive/
+SFT_Symlink/
+_TRASH/
+*.log
+__pycache__/
+sft.egg-info/

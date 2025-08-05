@@ -128,7 +128,10 @@ class SFTFileHandler(FileSystemEventHandler):
         try:
             # Create a unique filename to avoid conflicts
             timestamp = int(time.time())
-            filename = f"{timestamp}_{source_path.name}"
+            # Split the filename into name and extension
+            name_part = source_path.stem
+            extension = source_path.suffix
+            filename = f"{name_part}_{timestamp}{extension}"
             archive_file_path = self.archive_path / category / filename
             
             # Move the file to archive

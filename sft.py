@@ -7,152 +7,196 @@ Main CLI tool for interacting with the SFT system.
 import argparse
 import sys
 import logging
+import importlib
+import inspect
 from pathlib import Path
+from typing import Dict, Any, Callable
 from dotenv import load_dotenv
 
-# Import the core logic functions
-from logic import (
-    ingest_new_file, 
-    get_records_by_identifier, 
-    edit_notes_interactive
-)
+# Add the project root to the Python path
+project_root = Path(__file__).resolve().parent
+sys.path.append(str(project_root))
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def ingest_command(filepath: str):
-    """
-    Handle the ingest command.
+class CommandModule:
+    """Base class for command modules."""
     
-    Args:
-        filepath: Path to the file to ingest
-    """
-    print(f"Ingesting file: {filepath}")
+    def __init__(self, name: str, description: str, func: Callable):
+        self.name = name
+        self.description = description
+        self.func = func
     
-    cal_record = ingest_new_file(filepath)
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        """Add command-specific arguments to the parser."""
+        pass
     
-    if cal_record:
-        print(f"✅ Successfully ingested file!")
-        print(f"   ID: {cal_record.id}")
-        print(f"   Filename: {cal_record.original_filename}")
-        print(f"   Archive path: {cal_record.archive_path}")
-        print(f"   Revision: {cal_record.revision}")
-    else:
-        print(f"❌ Failed to ingest file: {filepath}")
-        sys.exit(1)
+    def execute(self, args: argparse.Namespace):
+        """Execute the command with the given arguments."""
+        return self.func(args)
 
 
-def find_command(search_term: str):
-    """
-    Handle the find command.
+class CommandRouter:
+    """Router for discovering and executing command modules."""
     
-    Args:
-        search_term: Term to search for
-    """
-    print(f"Searching for: {search_term}")
+    def __init__(self):
+        self.commands: Dict[str, CommandModule] = {}
+        self.commands_dir = Path(__file__).parent / "commands"
     
-    records = get_records_by_identifier(search_term)
+    def discover_commands(self):
+        """Discover command modules from the commands directory."""
+        if not self.commands_dir.exists():
+            logger.warning(f"Commands directory not found: {self.commands_dir}")
+            return
+        
+        # Import the main commands module
+        try:
+            commands_module = importlib.import_module("commands")
+        except ImportError as e:
+            logger.warning(f"Could not import commands module: {e}")
+            return
+        
+        # Discover commands from subdirectories
+        for subdir in self.commands_dir.iterdir():
+            if subdir.is_dir():
+                # First, try to discover from __init__.py
+                if (subdir / "__init__.py").exists():
+                    self._discover_commands_from_directory(subdir)
+                
+                # Then, discover from individual Python files in the subdirectory
+                for py_file in subdir.glob("*.py"):
+                    if py_file.name != "__init__.py":
+                        self._discover_commands_from_file(subdir, py_file)
     
-    if not records:
-        print(f"No files found matching: {search_term}")
-        return
+    def _discover_commands_from_directory(self, directory: Path):
+        """Discover commands from a specific directory."""
+        try:
+            # Import the directory as a module
+            module_name = f"commands.{directory.name}"
+            module = importlib.import_module(module_name)
+            
+            # Look for command functions in the module
+            for name, obj in inspect.getmembers(module):
+                if (inspect.isfunction(obj) and 
+                    hasattr(obj, '_is_command') and 
+                    obj._is_command):
+                    
+                    command_name = getattr(obj, '_command_name', name)
+                    description = getattr(obj, '_command_description', f'Execute {name}')
+                    
+                    # Create a command module with the function and its argument parser
+                    cmd_module = CommandModule(
+                        name=command_name,
+                        description=description,
+                        func=obj
+                    )
+                    
+                    # Try to get the add_arguments function from the same module
+                    if hasattr(module, 'add_arguments'):
+                        cmd_module.add_arguments = module.add_arguments
+                    
+                    self.commands[command_name] = cmd_module
+                    # logger.info(f"Discovered command: {command_name}")
+        
+        except ImportError as e:
+            logger.warning(f"Could not import module from {directory}: {e}")
+        except Exception as e:
+            logger.warning(f"Error discovering commands from {directory}: {e}")
     
-    print(f"Found {len(records)} record(s):")
-    print("-" * 80)
+    def _discover_commands_from_file(self, directory: Path, py_file: Path):
+        """Discover commands from a specific Python file."""
+        try:
+            # Import the file as a module
+            module_name = f"commands.{directory.name}.{py_file.stem}"
+            module = importlib.import_module(module_name)
+            
+            # Look for command functions in the module
+            for name, obj in inspect.getmembers(module):
+                if (inspect.isfunction(obj) and 
+                    hasattr(obj, '_is_command') and 
+                    obj._is_command):
+                    
+                    command_name = getattr(obj, '_command_name', name)
+                    description = getattr(obj, '_command_description', f'Execute {name}')
+                    
+                    # Create a command module with the function and its argument parser
+                    cmd_module = CommandModule(
+                        name=command_name,
+                        description=description,
+                        func=obj
+                    )
+                    
+                    # Try to get the add_arguments function from the same module
+                    if hasattr(module, 'add_arguments'):
+                        cmd_module.add_arguments = module.add_arguments
+                    
+                    self.commands[command_name] = cmd_module
+                    # logger.info(f"Discovered command: {command_name}")
+        
+        except ImportError as e:
+            logger.warning(f"Could not import module from {py_file}: {e}")
+        except Exception as e:
+            logger.warning(f"Error discovering commands from {py_file}: {e}")
     
-    for record in records:
-        print(f"ID: {record['id']}")
-        print(f"Filename: {record['original_filename']}")
-        print(f"Revision: {record['revision']}")
-        print(f"Timestamp: {record['timestamp']}")
-        print(f"Tags: {', '.join(record['tags']) if record['tags'] else 'None'}")
-        print(f"Notes: {record['notes'][:100] + '...' if record['notes'] and len(record['notes']) > 100 else record['notes'] or 'None'}")
-        print("-" * 80)
+    def create_parser(self) -> argparse.ArgumentParser:
+        """Create the main argument parser with discovered commands."""
+        parser = argparse.ArgumentParser(
+            prog='sft',
+            description='Sovereign File Tracker - Command Line Interface',
+            epilog='Use "sft <command> --help" for more information about a command.'
+        )
+        
+        # Create subparsers for different commands
+        subparsers = parser.add_subparsers(
+            dest='command',
+            help='Available commands',
+            metavar='COMMAND'
+        )
+        
+        # Add discovered commands
+        for command_name, command_module in self.commands.items():
+            subparser = subparsers.add_parser(
+                command_name,
+                help=command_module.description
+            )
+            
+            # Let the command module add its own arguments
+            if hasattr(command_module, 'add_arguments'):
+                command_module.add_arguments(subparser)
+            
+            # Set the default function
+            subparser.set_defaults(func=command_module.execute)
+        
+        return parser
+    
+    def execute_command(self, args: argparse.Namespace):
+        """Execute the specified command."""
+        if not args.command:
+            return False
+        
+        if args.command not in self.commands:
+            logger.error(f"Unknown command: {args.command}")
+            return False
+        
+        try:
+            self.commands[args.command].execute(args)
+            return True
+        except Exception as e:
+            logger.error(f"Error executing command '{args.command}': {e}")
+            return False
 
 
-def view_command(identifier: str):
-    """
-    Handle the view command.
-    
-    Args:
-        identifier: UUID or filename to view
-    """
-    print(f"Viewing details for: {identifier}")
-    
-    records = get_records_by_identifier(identifier)
-    
-    if not records:
-        print(f"No files found for identifier: {identifier}")
-        return
-    
-    if len(records) > 1:
-        print(f"Multiple records found. Showing the latest revision:")
-    
-    # Show the latest revision (first in the list since it's ordered by revision DESC)
-    record = records[0]
-    
-    print("=" * 80)
-    print("FILE DETAILS")
-    print("=" * 80)
-    print(f"ID: {record['id']}")
-    print(f"Filename: {record['original_filename']}")
-    print(f"Revision: {record['revision']}")
-    print(f"Archive Path: {record['archive_path']}")
-    print(f"Timestamp: {record['timestamp']}")
-    print(f"Tags: {', '.join(record['tags']) if record['tags'] else 'None'}")
-    print(f"Notes:")
-    if record['notes']:
-        print(record['notes'])
-    else:
-        print("  None")
-    print("=" * 80)
-
-
-def history_command(identifier: str):
-    """
-    Handle the history command.
-    
-    Args:
-        identifier: UUID or filename to show history for
-    """
-    print(f"Showing history for: {identifier}")
-    
-    records = get_records_by_identifier(identifier)
-    
-    if not records:
-        print(f"No files found for identifier: {identifier}")
-        return
-    
-    print(f"Version history ({len(records)} revision(s)):")
-    print("=" * 80)
-    
-    for i, record in enumerate(records, 1):
-        print(f"Revision {record['revision']} (Latest)" if i == 1 else f"Revision {record['revision']}")
-        print(f"  ID: {record['id']}")
-        print(f"  Filename: {record['original_filename']}")
-        print(f"  Archive Path: {record['archive_path']}")
-        print(f"  Timestamp: {record['timestamp']}")
-        print(f"  Tags: {', '.join(record['tags']) if record['tags'] else 'None'}")
-        if record['notes']:
-            print(f"  Notes: {record['notes'][:100] + '...' if len(record['notes']) > 100 else record['notes']}")
-        print("-" * 40)
-
-
-def note_command(identifier: str):
-    """
-    Handle the note command.
-    
-    Args:
-        identifier: UUID or filename to add/edit notes for
-    """
-    print(f"Editing notes for: {identifier}")
-    
-    success = edit_notes_interactive(identifier)
-    
-    if not success:
-        sys.exit(1)
+def command(name: str = None, description: str = None):
+    """Decorator to mark functions as commands."""
+    def decorator(func):
+        func._is_command = True
+        func._command_name = name or func.__name__
+        func._command_description = description or func.__doc__ or f'Execute {func.__name__}'
+        return func
+    return decorator
 
 
 def main():
@@ -162,81 +206,16 @@ def main():
     # Load environment variables from .env file
     load_dotenv()
     
-    # Create the main parser
-    parser = argparse.ArgumentParser(
-        prog='sft',
-        description='Sovereign File Tracker - Command Line Interface',
-        epilog='Use "sft <command> --help" for more information about a command.'
-    )
+    # Create command router and discover commands
+    router = CommandRouter()
+    router.discover_commands()
     
-    # Create subparsers for different commands
-    subparsers = parser.add_subparsers(
-        dest='command',
-        help='Available commands',
-        metavar='COMMAND'
-    )
+    if not router.commands:
+        logger.error("No commands discovered. Please check the commands directory.")
+        sys.exit(1)
     
-    # Ingest command
-    ingest_parser = subparsers.add_parser(
-        'ingest',
-        help='Ingest a new file into the SFT system'
-    )
-    ingest_parser.add_argument(
-        'filepath',
-        type=str,
-        help='Path to the file to ingest'
-    )
-    ingest_parser.set_defaults(func=ingest_command)
-    
-    # Find command
-    find_parser = subparsers.add_parser(
-        'find',
-        help='Search for files in the SFT system'
-    )
-    find_parser.add_argument(
-        'search_term',
-        type=str,
-        help='Search term to find files'
-    )
-    find_parser.set_defaults(func=find_command)
-    
-    # View command
-    view_parser = subparsers.add_parser(
-        'view',
-        help='View details of a specific file'
-    )
-    view_parser.add_argument(
-        'identifier',
-        type=str,
-        help='UUID or filename to view'
-    )
-    view_parser.set_defaults(func=view_command)
-    
-    # History command
-    history_parser = subparsers.add_parser(
-        'history',
-        help='Show version history of a file'
-    )
-    history_parser.add_argument(
-        'identifier',
-        type=str,
-        help='UUID or filename to show history for'
-    )
-    history_parser.set_defaults(func=history_command)
-    
-    # Note command
-    note_parser = subparsers.add_parser(
-        'note',
-        help='Add or edit notes for a file'
-    )
-    note_parser.add_argument(
-        'identifier',
-        type=str,
-        help='UUID or filename to add/edit notes for'
-    )
-    note_parser.set_defaults(func=note_command)
-    
-    # Parse arguments
+    # Create parser and parse arguments
+    parser = router.create_parser()
     args = parser.parse_args()
     
     # Check if a command was provided
@@ -244,21 +223,9 @@ def main():
         parser.print_help()
         sys.exit(1)
     
-    # Execute the appropriate command
-    try:
-        # Extract the command-specific argument
-        if args.command == 'ingest':
-            args.func(args.filepath)
-        elif args.command == 'find':
-            args.func(args.search_term)
-        elif args.command in ['view', 'history', 'note']:
-            args.func(args.identifier)
-        else:
-            logger.error(f"Unknown command: {args.command}")
-            sys.exit(1)
-            
-    except Exception as e:
-        logger.error(f"Error executing command '{args.command}': {e}")
+    # Execute the command
+    success = router.execute_command(args)
+    if not success:
         sys.exit(1)
 
 
