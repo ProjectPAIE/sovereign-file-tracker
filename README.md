@@ -1,8 +1,6 @@
-#Good morning. Yes, let's update that README to reflect the final, feature-complete version of the SFT.
+### \#\# The Final `README.md` (Version 1.0)
 
-Here is the complete, polished `README.md` that includes the updated description and the full, comprehensive list of all the powerful commands you've built.
-
------
+Here is the complete, updated version.
 
 # Sovereign File Tracker (SFT)
 
@@ -38,7 +36,7 @@ SFT extracts this power and gives it back to you, creating a single, robust, and
 
 #### Installation Steps
 
-1.  Clone the repository: `git clone https://github.com/ProjectPAIE/sovereign-file-tracker.git`
+1.  Clone the repository: `git clone <your-repo-url>`
 2.  Navigate into the project directory: `cd sovereign-file-tracker`
 3.  Create and activate a Python virtual environment:
     ```bash
@@ -46,9 +44,13 @@ SFT extracts this power and gives it back to you, creating a single, robust, and
     source venv/bin/activate
     ```
 4.  Install the required libraries: `pip install -r requirements.txt`
-5.  Install the CLI: `pip install -e .`
+5.  Install the CLI in editable mode: `pip install -e .`
 6.  Create a `.env` file for your database credentials (you can copy `.env.example`).
 7.  Create the database in PostgreSQL: `CREATE DATABASE sft_db;`
+8.  **Initialize the SFT folders and tables:**
+    ```bash
+    sft init
+    ```
 
 -----
 
@@ -93,6 +95,14 @@ The `sft` command is now available globally within your activated environment.
   * `sft all-links <id>`: Get a 360-degree view of all connections.
   * `sft link-tag <source_id> <target_id> <tags...>`: Add tags to a specific link.
   * `sft link-untag <source_id> <target_id> <tags...>`: Remove tags from a specific link.
+
+#### Admin Commands
+
+  * `sft init`: Sets up the required folders and database tables.
+  * `sft stats`: Shows high-level analytics about the SFT archive.
+  * `sft delete <id>`: Safely moves a tracked file and its history to a trash folder.
+  * `sft repair`: Audits the archive for inconsistencies and can fix broken symlinks.
+  * `sft trace <start_id> <end_id>`: Traces a path through the knowledge graph.
 
 
 ```
