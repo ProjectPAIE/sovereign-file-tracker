@@ -1,7 +1,3 @@
-### \#\# The Final `README.md` (Version 1.0)
-
-Here is the complete, updated version.
-
 # Sovereign File Tracker (SFT)
 
 A local-first system for creating a permanent, versioned, and queryable knowledge graph for your entire digital life. Think "Git for any file," built for data sovereignty.
